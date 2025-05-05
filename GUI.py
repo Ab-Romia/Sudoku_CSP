@@ -582,49 +582,44 @@ class SudokuGUI:
 
         values_removed_this_call = []
         for value in original_domain_Xi:
-            # Check if 'value' from Xi has a supporting value in Xj's domain
-            if not any(value != v for v in domain_Xj):
-                if value in domain_Xi: # Check if it wasn't already removed by a prior revision in this loop
+            # For Sudoku's all-different constraint:
+            # We need to remove value from Xi's domain if it equals Xj's value
+            # and Xj can only be that value (domain size 1)
+            if len(domain_Xj) == 1 and value == domain_Xj[0]:
+                if value in domain_Xi:  # Check if it wasn't already removed
                     domain_Xi.remove(value)
                     values_removed_this_call.append(value)
                     revised = True
 
         # Log revision results if any value was actually removed
         if revised:
-             log_callback("revise", Xi=Xi, Xj=Xj, old_domain_Xi=original_domain_Xi, removed_value=values_removed_this_call, new_domain_Xi=domain_Xi)
+            log_callback("revise", Xi=Xi, Xj=Xj, old_domain_Xi=original_domain_Xi, 
+                        removed_value=values_removed_this_call, new_domain_Xi=domain_Xi)
 
         return revised
 
     def enforce_arc_consistency_visual(self, log_callback, gui_callback):
-        """Adapted AC-3 to use revise_visual and potentially update GUI on singletons."""
-        # Create initial queue from all arcs defined in the board
-        arc_queue = list(self.sudoku_board.arcs)
-        processed_arcs_in_pass = set() # Optimization: avoid reprocessing needlessly in one pass
-
-        while arc_queue:
-            Xi, Xj = arc_queue.pop(0)
-            processed_arcs_in_pass.add((Xi,Xj)) # Mark as processed in this expansion
-
+        """
+        AC-3: returns True if no domain is wiped out, False otherwise.
+        Uses revise_visual for logging.
+        """
+        from collections import deque
+        # build initial queue of all arcs
+        queue = deque((Xi, Xj)
+                      for Xi in self.sudoku_board.variables
+                      for Xj in self.sudoku_board.neighbors[Xi])
+        while queue:
+            Xi, Xj = queue.popleft()
+            # revise_visual returns True if it removed something
             if self.revise_visual(Xi, Xj, log_callback):
+                # if Xi’s domain is now empty, failure
                 if not self.sudoku_board.domains[Xi]:
-                    r,c = index_to_cell(Xi)
-                    raise ValueError(f"Domain of variable X{Xi}[{r+1},{c+1}] became empty. Puzzle unsolvable.")
-
-                # If Xi's domain was revised, add incoming arcs (Xk, Xi) back to queue
+                    return False
+                # re-enqueue all arcs (Xk -> Xi), except Xj->Xi
                 for Xk in self.sudoku_board.neighbors[Xi]:
                     if Xk != Xj:
-                         # Add neighbors to queue if not already present or just processed
-                         if (Xk, Xi) not in processed_arcs_in_pass and (Xk, Xi) not in arc_queue :
-                            arc_queue.append((Xk, Xi))
-
-                # Optional immediate GUI update for singleton:
-                if len(self.sudoku_board.domains[Xi]) == 1:
-                    # Check if it's a *new* singleton visually
-                    r,c = index_to_cell(Xi)
-                    current_gui_val = self.entries[r][c].get()
-                    if not current_gui_val.isdigit() or int(current_gui_val) != self.sudoku_board.domains[Xi][0]:
-                       gui_callback("singleton", Xi, self.sudoku_board.domains[Xi][0])
-
+                        queue.append((Xk, Xi))
+        return True
 
     def update_grid_from_domains_visual(self, gui_callback):
          """Update grid after AC, calling GUI callback for new singletons."""
@@ -662,8 +657,8 @@ class SudokuGUI:
         for neighbor in self.sudoku_board.neighbors[var]:
             neighbor_domain = self.sudoku_board.domains[neighbor]
             if value in neighbor_domain:
-                # Check for failure condition BEFORE modifying
-                if len(neighbor_domain) == 1:
+                # Correct check: Only fail if removing this value would leave domain empty
+                if len(neighbor_domain) == 1 and neighbor_domain[0] == value:
                     # This assignment would empty a neighbor's domain - failure
                     return None
 
@@ -674,70 +669,57 @@ class SudokuGUI:
         for neighbor, values_to_remove in inferences.items():
             neighbor_domain = self.sudoku_board.domains[neighbor]
             for val in values_to_remove:
-                if val in neighbor_domain: # Check if still present (might be removed by another check)
+                if val in neighbor_domain: # Check if still present
                     neighbor_domain.remove(val)
                     self.prune_count += 1 # Count FC prunes
-                    # Optional: Log FC prune via log_callback here if needed
 
         return inferences # Return the actual removals for restoration
 
     def backtrack_solve_visual(self, gui_callback, log_callback):
-        """Adapted backtracking solver with visualization callbacks."""
-        if self.sudoku_board.is_solved():
+        """Backtracking + full AC-3 propagation at each step."""
+        # 1) Check for completion: every domain is size 1
+        if all(len(self.sudoku_board.domains[v]) == 1
+               for v in self.sudoku_board.variables):
+            # fill the grid from domains
+            for v in self.sudoku_board.variables:
+                r, c = index_to_cell(v)
+                self.sudoku_board.grid[r][c] = self.sudoku_board.domains[v][0]
             return True
 
-        variable = self.sudoku_board.select_unassigned_variable() # MRV heuristic
-        if variable is None:
-            # Should be caught by is_solved, but acts as safeguard
-             return True # No unassigned vars left means solved
+        # 2) Select next var (MRV)
+        var = self.sudoku_board.select_unassigned_variable()
+        row, col = index_to_cell(var)
 
+        # snapshot all domains to restore later
+        saved_domains = {v: self.sudoku_board.domains[v][:] 
+                         for v in self.sudoku_board.variables}
 
-        row_try, col_try = index_to_cell(variable)
-        # self.log(f"BT: Trying variable X{variable} ({row_try+1},{col_try+1}) with domain {self.sudoku_board.domains[variable]}")
+        # 3) Try each value in LCV order (or raw domain)
+        for value in self.sudoku_board.order_domain_values(var) or saved_domains[var]:
+            if not self.sudoku_board.is_valid_assignment(var, value):
+                continue
 
-        # Order domain values (LCV heuristic)
-        ordered_values = self.sudoku_board.order_domain_values(variable)
+            # visualize the tentative assign
+            gui_callback("assign", var, value)
+            # commit to grid & domain
+            self.sudoku_board.grid[row][col] = value
+            self.sudoku_board.domains[var] = [value]
 
-        for value in ordered_values:
-            # 1. Check if value is consistent with *current assignments*
-            #    (Board.py's is_valid_assignment does this)
-            if self.sudoku_board.is_valid_assignment(variable, value):
+            # 4) Propagate with AC-3
+            if self.enforce_arc_consistency_visual(log_callback, gui_callback):
+                # reflect any new singletons in the GUI
+                self.update_grid_from_domains_visual(gui_callback)
+                # recurse
+                if self.backtrack_solve_visual(gui_callback, log_callback):
+                    return True
 
-                # Visualize the attempt
-                gui_callback("assign", variable, value) # Shows trying color
+            # 5) Backtrack: restore grid + all domains
+            self.sudoku_board.grid[row][col] = 0
+            for v in self.sudoku_board.variables:
+                self.sudoku_board.domains[v] = saved_domains[v]
+            gui_callback("backtrack", var)
 
-                # Assign value (temporarily)
-                original_domain = self.sudoku_board.domains[variable][:]
-                self.sudoku_board.domains[variable] = [value]
-                self.sudoku_board.grid[row_try][col_try] = value # Update internal grid
-
-                # 2. Perform Forward Checking
-                inferences = self.forward_check_visual(variable, value)
-
-                if inferences is not None: # Forward check did not detect immediate failure
-                    # 3. Recurse
-                    if self.backtrack_solve_visual(gui_callback, log_callback):
-                        # Solution found down this path!
-                        # The successful return will propagate up.
-                        # Final color update happens when callback is called from parent
-                        return True
-
-                # 4. Backtrack: If FC failed (inferences is None) or recursion returned False
-                # Restore domain for current variable
-                self.sudoku_board.domains[variable] = original_domain
-                self.sudoku_board.grid[row_try][col_try] = 0 # Update internal grid
-
-                # Restore domains changed by forward checking
-                self.sudoku_board.restore_inferences(inferences) # Uses the dict returned by FC
-
-                # Visualize the backtrack (clear cell)
-                gui_callback("backtrack", variable)
-
-            # Else (value not valid according to is_valid_assignment):
-            #   Continue to the next value in the ordered domain
-
-        # No value in the ordered domain worked for this variable
-        # self.log(f"BT: Backtracking from variable X{variable} ({row_try+1},{col_try+1}). No value worked.")
+        # no value worked
         return False
 
 
