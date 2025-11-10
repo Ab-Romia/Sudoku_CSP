@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sudoku Solver & Generator - CSP AI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="theme-toggle" id="themeToggle">
+        <i class="fas fa-moon"></i>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1 class="title">
+                <i class="fas fa-brain"></i>
+                Sudoku AI Solver
+            </h1>
+            <p class="subtitle">Powered by Constraint Satisfaction Problem (CSP) Algorithm</p>
+        </header>
+
+        <div class="stats-panel">
+            <div class="stat-item">
+                <i class="fas fa-clock"></i>
+                <span class="stat-label">Time</span>
+                <span class="stat-value" id="timer">00:00</span>
+            </div>
+            <div class="stat-item">
+                <i class="fas fa-crosshairs"></i>
+                <span class="stat-label">Difficulty</span>
+                <span class="stat-value" id="currentDifficulty">Medium</span>
+            </div>
+            <div class="stat-item">
+                <i class="fas fa-lightbulb"></i>
+                <span class="stat-label">Hints Left</span>
+                <span class="stat-value" id="hintsLeft">3</span>
+            </div>
+            <div class="stat-item">
+                <i class="fas fa-check-circle"></i>
+                <span class="stat-label">Mistakes</span>
+                <span class="stat-value" id="mistakes">0</span>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="controls-panel">
+                <div class="control-section">
+                    <h3><i class="fas fa-cog"></i> Game Settings</h3>
+                    <div class="control-group">
+                        <label>Difficulty Level</label>
+                        <div class="difficulty-buttons">
+                            <button class="diff-btn" data-difficulty="easy">Easy</button>
+                            <button class="diff-btn active" data-difficulty="medium">Medium</button>
+                            <button class="diff-btn" data-difficulty="hard">Hard</button>
+                            <button class="diff-btn" data-difficulty="expert">Expert</button>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <button class="btn btn-primary" id="generateBtn">
+                            <i class="fas fa-plus-circle"></i> New Puzzle
+                        </button>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h3><i class="fas fa-gamepad"></i> Game Actions</h3>
+                    <div class="control-group">
+                        <button class="btn btn-success" id="solveBtn">
+                            <i class="fas fa-robot"></i> AI Solve
+                        </button>
+                        <button class="btn btn-info" id="hintBtn">
+                            <i class="fas fa-lightbulb"></i> Get Hint
+                        </button>
+                        <button class="btn btn-warning" id="checkBtn">
+                            <i class="fas fa-check"></i> Check Progress
+                        </button>
+                        <button class="btn btn-secondary" id="undoBtn">
+                            <i class="fas fa-undo"></i> Undo
+                        </button>
+                        <button class="btn btn-secondary" id="redoBtn">
+                            <i class="fas fa-redo"></i> Redo
+                        </button>
+                        <button class="btn btn-danger" id="clearBtn">
+                            <i class="fas fa-trash"></i> Clear
+                        </button>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h3><i class="fas fa-palette"></i> Preferences</h3>
+                    <div class="control-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="autoCheckErrors" checked>
+                            <span>Auto-check errors</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="highlightSame" checked>
+                            <span>Highlight same numbers</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="showTimer" checked>
+                            <span>Show timer</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="control-section algorithm-info">
+                    <h3><i class="fas fa-info-circle"></i> Algorithm Info</h3>
+                    <p>Using <strong>Backtracking</strong> with:</p>
+                    <ul>
+                        <li>Arc Consistency (AC-3)</li>
+                        <li>Forward Checking</li>
+                        <li>Minimum Remaining Values (MRV)</li>
+                        <li>Least Constraining Value (LCV)</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="game-area">
+                <div class="sudoku-container">
+                    <div id="sudokuGrid" class="sudoku-grid"></div>
+                    <div class="loading-overlay" id="loadingOverlay">
+                        <div class="loader"></div>
+                        <p>AI is solving...</p>
+                    </div>
+                </div>
+
+                <div class="number-pad">
+                    <div class="number-pad-title">Number Pad</div>
+                    <div class="number-buttons">
+                        <button class="num-btn" data-num="1">1</button>
+                        <button class="num-btn" data-num="2">2</button>
+                        <button class="num-btn" data-num="3">3</button>
+                        <button class="num-btn" data-num="4">4</button>
+                        <button class="num-btn" data-num="5">5</button>
+                        <button class="num-btn" data-num="6">6</button>
+                        <button class="num-btn" data-num="7">7</button>
+                        <button class="num-btn" data-num="8">8</button>
+                        <button class="num-btn" data-num="9">9</button>
+                        <button class="num-btn erase-btn" data-num="0">
+                            <i class="fas fa-eraser"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="instructions">
+            <h3><i class="fas fa-question-circle"></i> How to Play</h3>
+            <div class="instruction-grid">
+                <div class="instruction-item">
+                    <i class="fas fa-mouse-pointer"></i>
+                    <p>Click a cell to select it</p>
+                </div>
+                <div class="instruction-item">
+                    <i class="fas fa-keyboard"></i>
+                    <p>Use number keys 1-9 or number pad</p>
+                </div>
+                <div class="instruction-item">
+                    <i class="fas fa-lightbulb"></i>
+                    <p>Use hints when stuck (limited)</p>
+                </div>
+                <div class="instruction-item">
+                    <i class="fas fa-robot"></i>
+                    <p>Watch AI solve using CSP algorithm</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="winModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <i class="fas fa-trophy"></i>
+                <h2>Congratulations!</h2>
+            </div>
+            <div class="modal-body">
+                <p>You solved the puzzle!</p>
+                <div class="win-stats">
+                    <p><strong>Time:</strong> <span id="winTime">00:00</span></p>
+                    <p><strong>Mistakes:</strong> <span id="winMistakes">0</span></p>
+                    <p><strong>Hints Used:</strong> <span id="winHints">0</span></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" id="newGameBtn">
+                    <i class="fas fa-play"></i> New Game
+                </button>
+                <button class="btn btn-secondary" id="closeModalBtn">
+                    <i class="fas fa-times"></i> Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
