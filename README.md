@@ -1,3 +1,13 @@
+---
+title: Sudoku AI Solver & Generator
+emoji: 🧠
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+app_port: 7860
+---
+
 # Sudoku AI Solver & Generator 🧠
 
 A modern, feature-rich web-based Sudoku solver and generator powered by advanced Constraint Satisfaction Problem (CSP) algorithms.
